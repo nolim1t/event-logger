@@ -3,19 +3,21 @@
 const uuid = require('uuid');
 const AWS = require('aws-sdk');
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
+const process = require('process');
 
 module.exports.hello = (event, context, callback) => {
   var responseBody = {
     message: "JSON webhook"
   };
+  const requestHeaders = event.headers;
+
   if (event.body !== undefined) {
     if (event.body !== null) {
         const timestamp = new Date().getTime();
         try {
           const parsedJSONBody = JSON.parse(event.body);
-          const dbrecord = {
+          var dbrecord = {
             identifier: uuid.v1(),
-            record: parsedJSONBody,
             createdAt: timestamp
           };
           if (parsedJSONBody.id !== undefined) {
@@ -59,8 +61,17 @@ module.exports.hello = (event, context, callback) => {
                 }
               }
               // Data block - END
-            } // END: Stripe processing
-          } // END: ID not found so maybe its some other event
+            } else { // END: Stripe processing
+              console.log("Not a stripe webhook");
+            }
+          } else if (requestHeaders["X-GitHub-Delivery"] !== undefined) {
+            dbrecord["identifier"] = requestHeaders["X-GitHub-Delivery"].toString();
+            dbrecord["eventType"] = "github";
+            if (requestHeaders["X-Hub-Signature"] !== undefined) dbrecord["githubsignature"] = requestHeaders["X-Hub-Signature"];
+            if (requestHeaders["X-GitHub-Event"] !== undefined) dbrecord["githubevent"] = requestHeaders["X-GitHub-Event"];
+          } else { // END: ID not found so maybe its some other event
+            console.log("Not a recognized webhook");
+          };
           const dbparams = {
               TableName: "Events",
               Item: dbrecord
@@ -73,9 +84,9 @@ module.exports.hello = (event, context, callback) => {
                 responseBody.message = "Error (" + error + ")"
               }
               responseBody = JSON.stringify(responseBody);
-              const response = {
-                  statusCode: 200,
-                  body: responseBody
+              var response = {
+                statusCode: 200,
+                body: responseBody
               };
               callback(null, response);
           });
